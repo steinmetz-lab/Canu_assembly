@@ -16,22 +16,28 @@ ref_file="S288c_SynIXR/SynIXR_S299C_combined.fsa"
 result_dir="/g/steinmetz/project/IESY/sequencing/Results/PacBio/"
 
 # Append sample ID (well information etc.)
-sample_ID_append="-F3-test6"
+sample_ID_append="-F3-lowCoverage"
 
 # Aligner arguments
-bestn="1"
+bestn="2"
 nproc="16" #number of spawned processes
 
 # Samtools arguments
 mem_alloc="20000000000" #in bytes
 
-# Reads of interest
-chr_ID="gi|346228209|gb|JN020955.1|" #Chromosome identifier ID
+# Chromosome ID for reads of interest
+chr_ID="gi|346228209|gb|JN020955.1|" #SynIXR in this case
 
 # Assembler arguments
-genome_size="155280" # in bytes
+genome_size="155280" #in bytes
 seq_lib_type="pacbio-raw" #library input type
 use_grid="0" #attach to grid
+non_default=true #true will invoke the non-default settings below (useful for low coverage assemblies)
+corMhapSensitivity="high"
+corMinCoverage="2"
+errorRate="0.035"
+minOverlapLength="100"
+corMaxEvidenceErate="0.3"
 
 ### Run pipeline ###
 
@@ -50,6 +56,17 @@ align_out=$sample_ID$align_append
 
 # Extracted reads output
 extract_append="_PacBio_SynIXR_only_sorted"
+
+# Switch between default and non-default settings for the assembly
+if [ $non_default == true ]; 
+    then
+        low_coverage_settings="corMhapSensitivity=$corMhapSensitivity corMinCoverage=$corMinCoverage \
+        errorRate=$errorRate minOverlapLength=$minOverlapLength corMaxEvidenceErate=$corMaxEvidenceErate"
+        echo "Using non-default settings for the assembly"
+    else
+        low_coverage_settings=""
+        echo "Using default settings for the assembly"
+fi
 
 # Create results directories
 cd $result_dir
@@ -86,8 +103,6 @@ cd /g/steinmetz/project/IESY/Tools/canu/Linux-amd64/bin/
 
 ./canu -p JS599-F3-gDNA_SynIXR_only -d "$result_dir$sample_ID/Canu_assembly/SynIXR_only" \
 genomeSize=$genome_size -$seq_lib_type "$result_dir$sample_ID/Ref_align/All_reads/$sample_ID$extract_append.fasta" \
-useGrid=$use_grid
+useGrid=$use_grid $low_coverage_settings
 
 echo "Completed assembly"
-
-
