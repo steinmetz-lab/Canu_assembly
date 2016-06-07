@@ -3,30 +3,30 @@
 
 ### Change these settings as needed ###
 
-# Read file information
+# Reads input options
 read_dir="/g/steinmetz/project/IESY/sequencing/Data/PacBio/XEMBL.20161504.PACBIO_DATA"
-read_file="XEMBL_20160408_RS42150_PL100065328A-1_H01-1_lbc4.fastq"
-read_ID="JS599"
+read_file="XEMBL_20160408_RS42150_PL100065304A-1_H01-1_lbc1.fastq "
+read_ID="JS94"
+read_ID_append="-A1-lowCoverage_bestn_2"
+seq_tech="PacBio"
 
-# Reference file information
+# Reference input options
 ref_dir="/g/steinmetz/genome/Saccharomyces_cerevisiae/"
 ref_file="S288c_SynIXR/SynIXR_S299C_combined.fsa"
 
-# Results information
+# Results output options
 result_dir="/g/steinmetz/project/IESY/sequencing/Results/PacBio/"
 
-# Append sample ID (well information etc.)
-sample_ID_append="-F3-lowCoverage"
+# Chromosome of interest
+chr_ID="gi|346228209|gb|JN020955.1|" #Chr ID for collecting reads of interest
+chr_name="SynIXR"
 
 # Aligner arguments
-bestn="2"
+bestn="2" #number of returned hits
 nproc="16" #number of spawned processes
 
 # Samtools arguments
 mem_alloc="20000000000" #in bytes
-
-# Chromosome ID for reads of interest
-chr_ID="gi|346228209|gb|JN020955.1|" #SynIXR in this case
 
 # Assembler arguments
 genome_size="155280" #in bytes
@@ -48,14 +48,45 @@ read_in="$read_dir/Demux/$read_ID/$read_file"
 ref_in=$ref_dir$ref_file
 
 # Sample ID
-sample_ID=$read_ID$sample_ID_append
+sample_ID=$read_ID$read_ID_append
 
 # Aligned reads output
-align_append="_PacBio_all_reads_aligned"
+align_append="_${seq_tech}_all_reads_aligned"
 align_out=$sample_ID$align_append
 
 # Extracted reads output
-extract_append="_PacBio_SynIXR_only_sorted"
+extract_append="_${seq_tech}_${chr_name}_only_sorted"
+
+# Create results output directories
+cd $result_dir
+mkdir ./$sample_ID
+mkdir ./$sample_ID/Ref_align
+mkdir ./$sample_ID/Ref_align/All_reads
+mkdir ./$sample_ID/Canu_assembly
+mkdir ./$sample_ID/Canu_assembly/${chr_name}_only
+
+# Align reads using BLASR
+cd $result_dir$sample_ID/Ref_align/All_reads
+~/.linuxbrew/bin/blasr $read_in $ref_in -bestn $bestn -sam -nproc $nproc -out $align_out.sam & wait
+
+echo "Completed collecting reads"
+
+# Convert to bam, sort and index
+cd $result_dir$sample_ID/Ref_align/All_reads
+/g/software/bin/samtools view -b -S $align_out.sam > $align_out.bam
+/g/software/bin/samtools sort -m $mem_alloc $align_out.bam -o ${align_out}_sorted.bam
+/g/software/bin/samtools index ${align_out}_sorted.bam
+
+# Extract reads mapping to chromosome of interest
+/g/software/bin/samtools view -b ${align_out}_sorted.bam "$chr_ID" > $sample_ID$extract_append.bam
+
+# Convert result to fasta
+/g/software/bin/samtools view $sample_ID$extract_append.bam | awk '{OFS="\t"; print ">"$1"\n"$10}' - > \
+$sample_ID$extract_append.fasta
+
+# Set JAVA environment for the assembler
+cd /g/steinmetz/project/IESY/Tools/environ
+. set_java-1.8 
 
 # Switch between default and non-default settings for the assembly
 if [ $non_default == true ]; 
@@ -68,40 +99,11 @@ if [ $non_default == true ];
         echo "Using default settings for the assembly"
 fi
 
-# Create results directories
-cd $result_dir
-mkdir ./$sample_ID
-mkdir ./$sample_ID/Ref_align
-mkdir ./$sample_ID/Ref_align/All_reads
-mkdir ./$sample_ID/Canu_assembly
-mkdir ./$sample_ID/Canu_assembly/SynIXR_only
-
-# Align reads using blasr
-cd $result_dir$sample_ID/Ref_align/All_reads
-~/.linuxbrew/bin/blasr $read_in $ref_in -bestn $bestn -sam -nproc $nproc -out $align_out.sam & wait
-
-echo "Completed collecting reads"
-
-# Convert to bam, sort and index
-cd $result_dir$sample_ID/Ref_align/All_reads
-/g/software/bin/samtools view -b -S $align_out.sam > $align_out.bam
-/g/software/bin/samtools sort -m $mem_alloc $align_out.bam -o ${align_out}_sorted.bam
-/g/software/bin/samtools index ${align_out}_sorted.bam
-
-# Extract reads mapping to SynIXR
-/g/software/bin/samtools view -b ${align_out}_sorted.bam "$chr_ID" > $sample_ID$extract_append.bam
-
-# Convert to fasta
-/g/software/bin/samtools view $sample_ID$extract_append.bam | awk '{OFS="\t"; print ">"$1"\n"$10}' - > \
-$sample_ID$extract_append.fasta
-
-# Set JAVA environment and run assembler
-cd /g/steinmetz/project/IESY/Tools/environ
-. set_java-1.8 
-
+# Change to output directory for assembly
 cd /g/steinmetz/project/IESY/Tools/canu/Linux-amd64/bin/
 
-./canu -p JS599-F3-gDNA_SynIXR_only -d "$result_dir$sample_ID/Canu_assembly/SynIXR_only" \
+# Run CANU assembler
+./canu -p ${sample_ID}_${chr_name}_only -d "$result_dir$sample_ID/Canu_assembly/${chr_name}_only" \
 genomeSize=$genome_size -$seq_lib_type "$result_dir$sample_ID/Ref_align/All_reads/$sample_ID$extract_append.fasta" \
 useGrid=$use_grid $low_coverage_settings
 
